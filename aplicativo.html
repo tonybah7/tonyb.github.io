@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App de Comunicação para Motociclistas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            text-align: center;
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button.start {
+            background-color: #28a745;
+            color: white;
+        }
+        button.stop {
+            background-color: #dc3545;
+            color: white;
+        }
+        button.download {
+            background-color: #007bff;
+            color: white;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        audio {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Comunicação para Motociclistas</h1>
+        <button id="startButton" class="start">Iniciar Comunicação</button>
+        <button id="stopButton" class="stop" disabled>Parar Comunicação</button>
+        <button id="downloadButton" class="download" disabled>Baixar Conversa (MP3)</button>
+        <audio id="audioPlayback" controls style="display:none;"></audio>
+    </div>
+
+    <script>
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const downloadButton = document.getElementById('downloadButton');
+        const audioPlayback = document.getElementById('audioPlayback');
+
+        let localStream;
+        let peerConnection;
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioBlob;
+
+        const servers = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'turn:numb.viagenie.ca', username: 'your_username', credential: 'your_password' }
+            ]
+        };
+
+        // Função para iniciar a comunicação
+        async function startCommunication() {
+            try {
+                // Capturar o áudio local (microfone)
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                // Criar uma nova conexão RTCPeerConnection
+                peerConnection = new RTCPeerConnection(servers);
+
+                // Adicionar faixas locais à conexão
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                // Receber faixas remotas
+                peerConnection.ontrack = event => {
+                    const remoteAudioElement = document.createElement('audio');
+                    remoteAudioElement.autoplay = true;
+                    remoteAudioElement.srcObject = event.streams[0];
+                    document.body.appendChild(remoteAudioElement);
+
+                    // Combinar áudio local e remoto
+                    const combinedStream = new MediaStream([
+                        ...localStream.getTracks(),
+                        ...event.streams[0].getTracks()
+                    ]);
+
+                    // Iniciar gravação do áudio combinado
+                    mediaRecorder = new MediaRecorder(combinedStream);
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+                    mediaRecorder.onstop = () => {
+                        audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        audioPlayback.src = audioUrl;
+                        audioPlayback.style.display = 'block';
+                        downloadButton.disabled = false;
+                    };
+                    mediaRecorder.start();
+                };
+
+                // Gerenciar candidatos ICE
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate) {
+                        console.log('Candidato ICE:', event.candidate);
+                    }
+                };
+
+                startButton.disabled = true;
+                stopButton.disabled = false;
+            } catch (error) {
+                alert('Erro ao acessar o microfone: ' + error.message);
+            }
+        }
+
+        // Função para encerrar a comunicação
+        function stopCommunication() {
+            if (peerConnection) {
+                peerConnection.close();
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            startButton.disabled = false;
+            stopButton.disabled = true;
+        }
+
+        // Função para baixar o áudio gravado
+        downloadButton.addEventListener('click', () => {
+            const url = URL.createObjectURL(audioBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'conversa.mp3';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // Eventos dos botões
+        startButton.addEventListener('click', startCommunication);
+        stopButton.addEventListener('click', stopCommunication);
+    </script>
+</body>
+</html>
